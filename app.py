@@ -63,8 +63,8 @@ def fetch_background_image(query, page=1, per_page=15):
         f"?query={query}"
         f"&per_page={per_page}"
         f"&page={page}"
-        f"&orientation=square"
-        f"&sort=popular"  # Sort by popularity
+        # f"&orientation=square"
+        # f"&sort=popular"  # Sort by popularity
     )
     
     try:
@@ -95,7 +95,7 @@ def fetch_background_image(query, page=1, per_page=15):
 
 def apply_blue_tint(image):
     """Apply a blue tint to the image"""
-    overlay = Image.new('RGBA', image.size, (0, 51, 153, 128))
+    overlay = Image.new('RGBA', image.size, (0, 0, 102, 128))
     image = image.convert('RGBA')
     return Image.alpha_composite(image, overlay)
 
