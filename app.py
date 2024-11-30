@@ -197,10 +197,10 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
     # Load fonts with regular weight (400)
     try:
         font_large = ImageFont.truetype(FONT_PATH, 72, layout_engine=ImageFont.Layout.RAQM)
-        font_large.set_variation_by_name('Regular')  # or set_variation_by_axes([400])
+        font_large.set_variation_by_name('Bold')  # Set event name to bold weight
         
         font_medium = ImageFont.truetype(FONT_PATH, 48, layout_engine=ImageFont.Layout.RAQM)
-        font_medium.set_variation_by_name('Regular')  # or set_variation_by_axes([400])
+        font_medium.set_variation_by_name('Regular')  # Keep other text regular
     except Exception as e:
         st.error(f"Error loading fonts: {str(e)}")
         return None
