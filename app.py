@@ -124,7 +124,9 @@ def add_footer(image):
         # Add call to action text
         draw = ImageDraw.Draw(footer)
         try:
-            font = ImageFont.truetype("Arial.ttf", 24)
+            # Use Montserrat font with regular weight
+            font = ImageFont.truetype(FONT_PATH, 28)
+            font.set_variation_by_name('Regular')  # Set to regular weight
         except:
             font = ImageFont.load_default()
             
@@ -136,8 +138,10 @@ def add_footer(image):
         cta_width = draw.textlength(cta_text, font=font)
         link_width = draw.textlength(link_text, font=font)
         
-        cta_pos = (IMAGE_SIZE[0] - cta_width - right_padding, FOOTER_HEIGHT//2 - 20)
-        link_pos = (IMAGE_SIZE[0] - link_width - right_padding, FOOTER_HEIGHT//2 + 5)
+        # Adjust vertical position to align better with logo
+        vertical_offset = 10  # Move text up by 10 pixels
+        cta_pos = (IMAGE_SIZE[0] - cta_width - right_padding, FOOTER_HEIGHT//2 - 20 - vertical_offset)
+        link_pos = (IMAGE_SIZE[0] - link_width - right_padding, FOOTER_HEIGHT//2 + 6 - vertical_offset)
         
         draw.text(cta_pos, cta_text, fill='black', font=font)
         draw.text(link_pos, link_text, fill=(0, 51, 153), font=font)
