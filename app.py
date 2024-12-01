@@ -16,7 +16,7 @@ if not PEXELS_API_KEY or PEXELS_API_KEY == 'your_pexels_api_key_here':
     st.write("You need to replace 'your_pexels_api_key_here' with your actual Pexels API key")
     st.stop()
 
-# Constants
+# Constants for image generation
 IMAGE_SIZE = (1080, 1080)
 FOOTER_HEIGHT = 150
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png")
