@@ -156,82 +156,135 @@ def add_footer(image):
         st.error(f"Error adding footer: {str(e)}")
         return image
 
+def create_minimalistic_background(size, style="gradient"):
+    """Create a minimalistic background with different style options"""
+    image = Image.new('RGB', size, color='white')
+    draw = ImageDraw.Draw(image)
+    
+    if style == "gradient":
+        # EXATEC blue gradient
+        top_color = (0, 45, 98)     # Dark blue
+        bottom_color = (0, 84, 166)  # Light blue
+        
+        for y in range(size[1]):
+            ratio = y / size[1]
+            r = int(top_color[0] * (1 - ratio) + bottom_color[0] * ratio)
+            g = int(top_color[1] * (1 - ratio) + bottom_color[1] * ratio)
+            b = int(top_color[2] * (1 - ratio) + bottom_color[2] * ratio)
+            draw.line([(0, y), (size[0], y)], fill=(r, g, b))
+    
+    elif style == "geometric":
+        # Solid background with geometric patterns
+        background_color = (0, 45, 98)  # Dark blue
+        accent_color = (0, 84, 166)     # Light blue
+        
+        image = Image.new('RGB', size, background_color)
+        draw = ImageDraw.Draw(image)
+        
+        # Draw diagonal stripes
+        stripe_width = 100
+        for i in range(-size[1], size[0] + size[1], stripe_width * 2):
+            points = [(i, 0), (i + size[1], size[1])]
+            draw.line(points, fill=accent_color, width=stripe_width // 2)
+    
+    elif style == "minimal":
+        # Solid color with subtle corner accent
+        main_color = (0, 45, 98)    # Dark blue
+        accent_color = (0, 84, 166)  # Light blue
+        
+        image = Image.new('RGB', size, main_color)
+        draw = ImageDraw.Draw(image)
+        
+        # Draw corner accent
+        corner_size = size[0] // 4
+        draw.rectangle([(0, 0), (corner_size, corner_size)], fill=accent_color)
+    
+    return image
+
 def create_event_image(time, date, event_name, place, address, query=None, page=1):
     """Create the event image with all details"""
-    # Get background image
-    if query is None:
-        query = enhance_search_query(event_name)
-    background = fetch_background_image(query, page=page)
-    if background is None:
-        st.error("Could not fetch background image. Please try again.")
-        return None
-    
-    # Resize to square
-    background = background.resize(IMAGE_SIZE)
-    
-    # Apply blue tint
-    tinted_image = apply_blue_tint(background)
-    
+    # Create or fetch background
+    if query and query.strip():
+        # If query is provided, try to fetch image from Pexels
+        background = fetch_background_image(query, page)
+        if background:
+            # Resize and crop to square
+            background = background.resize(IMAGE_SIZE)
+            # Apply blue tint
+            background = apply_blue_tint(background)
+        else:
+            # Fallback to white background if fetch fails
+            background = Image.new('RGB', IMAGE_SIZE, 'white')
+    else:
+        # Use white background if no query provided
+        background = Image.new('RGB', IMAGE_SIZE, 'white')
+
     # Create a new layer for the blue rectangle
     blue_overlay = Image.new('RGBA', IMAGE_SIZE, (0, 0, 0, 0))
     draw_overlay = ImageDraw.Draw(blue_overlay)
     
     # Define the blue rectangle dimensions (centered, 80% of width)
     rect_width = int(IMAGE_SIZE[0] * 0.8)
-    rect_height = int(IMAGE_SIZE[1] * 0.5)  # Reduced height
+    rect_height = int(IMAGE_SIZE[1] * 0.6)
     rect_left = (IMAGE_SIZE[0] - rect_width) // 2
-    rect_top = int(IMAGE_SIZE[1] * 0.2)  # Start at 20% from top
+    rect_top = int(IMAGE_SIZE[1] * 0.15)  # Start at 15% from top instead of center
     
-    # Draw blue rectangle
+    # Draw the semi-transparent blue rectangle
     draw_overlay.rectangle(
         [(rect_left, rect_top), (rect_left + rect_width, rect_top + rect_height)],
         fill=(0, 82, 204, 255)  # Solid blue color with full opacity
     )
     
-    # Composite the blue overlay onto the tinted image
-    tinted_image = Image.alpha_composite(tinted_image.convert('RGBA'), blue_overlay)
+    # Composite the blue overlay onto the background
+    background = Image.alpha_composite(background.convert('RGBA'), blue_overlay)
     
     # Add text
-    draw = ImageDraw.Draw(tinted_image)
+    draw = ImageDraw.Draw(background)
     
     # Load fonts with regular weight (400)
     try:
-        font_large = ImageFont.truetype(FONT_PATH, 72, layout_engine=ImageFont.Layout.RAQM)
+        font_large = ImageFont.truetype(FONT_PATH, 96)
         font_large.set_variation_by_name('Bold')  # Set event name to bold weight
         
-        font_medium = ImageFont.truetype(FONT_PATH, 48, layout_engine=ImageFont.Layout.RAQM)
-        font_medium.set_variation_by_name('Regular')  # Keep other text regular
+        font_medium = ImageFont.truetype(FONT_PATH, 36)  # Reduced from 48
+        font_medium.set_variation_by_name('Regular')
+        
+        font_small = ImageFont.truetype(FONT_PATH, 28)  # Reduced from 36
+        font_small.set_variation_by_name('Regular')
     except Exception as e:
         st.error(f"Error loading fonts: {str(e)}")
         return None
     
     # Calculate text positions relative to the blue rectangle
-    time_date_y = rect_top + 80
-    event_name_y = rect_top + (rect_height // 2)
-    place_y = rect_top + rect_height - 120
-    address_y = place_y + 60
+    center_x = IMAGE_SIZE[0] // 2
     
-    # Add text
-    # Time and date at top
-    draw.text((540, time_date_y), f"{time} | {date}", fill="white", anchor="mm", font=font_medium)
+    # Position text elements with adjusted spacing
+    datetime_y = rect_top + 40  # Fixed position from top of blue rectangle
+    event_name_y = rect_top + (rect_height // 2)  # Center in blue rectangle
+    place_y = rect_top + rect_height - 80  # Fixed position from bottom
+    address_y = place_y + 40  # Fixed spacing below place
     
-    # Event name in center - handle multiple lines
-    event_name_lines = event_name.upper().split('\n')
-    # Calculate line height using bbox
-    _, _, _, line_height = font_large.getbbox("A")
-    total_height = len(event_name_lines) * line_height
-    current_y = event_name_y - (total_height / 2)  # Start position to center all lines
+    # Draw text elements
+    # Time and date at top with vertical separator
+    separator = " | "
+    datetime_text = f"{time}{separator}{date}"
+    draw.text((center_x, datetime_y), datetime_text, fill="white", anchor="mm", font=font_small)
+    
+    # Event name in the middle (can be multiple lines)
+    event_name_lines = [line.strip().upper() for line in event_name.split('\n')]  # Convert to uppercase
+    total_height = len(event_name_lines) * font_large.size
+    current_y = event_name_y - (total_height / 2)
     
     for line in event_name_lines:
-        draw.text((540, current_y), line.strip(), fill="white", anchor="mm", font=font_large)
-        current_y += line_height  # Move to next line
+        draw.text((center_x, current_y), line, fill="white", anchor="mm", font=font_large)
+        current_y += font_large.size
     
     # Place and address at bottom
-    draw.text((540, place_y), place, fill="white", anchor="mm", font=font_medium)
-    draw.text((540, address_y), address, fill="white", anchor="mm", font=font_medium)
+    draw.text((center_x, place_y), place, fill="white", anchor="mm", font=font_medium)
+    draw.text((center_x, address_y), address, fill="white", anchor="mm", font=font_small)
     
     # Add footer
-    final_image = add_footer(tinted_image)
+    final_image = add_footer(background)
     
     return final_image
 
@@ -287,6 +340,7 @@ def main():
                 value=default_time,
                 help="Select the event time"
             )
+
             # Format time to 24-hour format
             formatted_time = time.strftime("%H:%M")
 
@@ -323,11 +377,11 @@ def main():
             )
 
             # Additional options in an expander
-            with st.expander("🎨 Customize Background Image", expanded=False):
+            with st.expander("🎨 Background Image", expanded=False):
                 background_keywords = st.text_input(
-                    "Background Image Keywords",
+                    "Background Image Keywords (optional)",
                     value="",
-                    help="Optional: Add specific keywords to customize the background image search"
+                    help="Add specific keywords to customize the background image. Leave empty for white background."
                 )
 
             # Center the generate button and make it more prominent
@@ -348,10 +402,7 @@ def main():
                 # Generate five different versions
                 images = []
                 
-                # Prepare base query
-                base_query = event_name.split('\n')[0]  # Use first line of event name
-                
-                if background_keywords:
+                if background_keywords.strip():
                     # When background keywords are provided, use them as the main search term
                     # and fetch different pages to ensure variety
                     search_query = background_keywords
@@ -374,29 +425,18 @@ def main():
                         if image:
                             images.append((image, f"Version {len(images) + 1}"))
                 else:
-                    # If no background keywords, use our varied approach
-                    search_queries = [
-                        base_query,  # Version 1: Event name
-                        f"celebration {base_query}",  # Version 2: Celebration context
-                        f"event venue {place}",  # Version 3: Location context
-                        "event decoration",  # Version 4: Generic event
-                        f"party {place}"  # Version 5: Location party
-                    ]
+                    # Use white background
+                    image = create_event_image(
+                        formatted_time,
+                        formatted_date,
+                        event_name,
+                        place,
+                        address,
+                        query=None
+                    )
                     
-                    # Generate images with different queries
-                    for idx, query in enumerate(search_queries, 1):
-                        image = create_event_image(
-                            formatted_time,
-                            formatted_date,
-                            event_name,
-                            place,
-                            address,
-                            query=query,
-                            page=1  # Use page 1 since queries are different
-                        )
-                        
-                        if image:
-                            images.append((image, f"Version {len(images) + 1}"))
+                    if image:
+                        images.append((image, "Preview"))
                 
                 if images:
                     # Display all generated images
@@ -406,25 +446,22 @@ def main():
                             unsafe_allow_html=True
                         )
                         st.markdown("<div class='generated-image'>", unsafe_allow_html=True)
-                        st.image(image, use_column_width=True)
+                        st.image(image, use_container_width=True)  # Changed from use_column_width
                         st.markdown("</div>", unsafe_allow_html=True)
                         
                         # Add download button for each version
                         buf = BytesIO()
                         image.save(buf, format="PNG")
                         st.download_button(
-                            label=f"📥 Download Version {idx}",
+                            label=f"📥 Download {version}",
                             data=buf.getvalue(),
                             file_name=f"event_{date.strftime('%Y%m%d')}_v{idx}.png",
                             mime="image/png",
                             use_container_width=True
                         )
                         st.markdown("<br>", unsafe_allow_html=True)
-                    
-                    if len(images) < 5:
-                        st.warning(f"Generated {len(images)} out of 5 requested images. Try different keywords for more variety.")
                 else:
-                    st.error("❌ Could not generate any images. Please try different keywords or try again later.")
+                    st.error("❌ Could not generate any images. Please try again.")
         else:
             # Show placeholder when no image is generated
             st.markdown(
