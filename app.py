@@ -446,7 +446,7 @@ def main():
                             unsafe_allow_html=True
                         )
                         st.markdown("<div class='generated-image'>", unsafe_allow_html=True)
-                        st.image(image, use_container_width=True)  # Changed from use_column_width
+                        st.image(image)  # Changed from use_column_width
                         st.markdown("</div>", unsafe_allow_html=True)
                         
                         # Add download button for each version
