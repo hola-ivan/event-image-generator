@@ -131,7 +131,7 @@ def add_footer(image):
             font = ImageFont.load_default()
             
         cta_text = "Reserva tu lugar:"
-        link_text = "lu.ma/EXATEC-Alemania"
+        link_text = "de.exatec.info/eventos"
         
         # Right-align text with padding
         right_padding = 30
