@@ -177,16 +177,28 @@ def create_minimalistic_background(size, style="gradient"):
         # Solid background with geometric patterns
         background_color = (0, 45, 98)  # Dark blue
         accent_color = (0, 84, 166)     # Light blue
-
-        # Check if any line in event_name exceeds 12 characters.
-        if any(len(line) > 12 for line in event_name.splitlines()):
-            # Extend the blue background to the full canvas width.
-            background_rect = (0, 0, canvas_width, background_height)
+        
+        # Check if any line in event_name exceeds max width
+        long_text = any(len(line.strip()) > 12 for line in event_name.splitlines())
+        
+        # Set background dimensions
+        if long_text:
+            # Full width background
+            draw.rectangle((0, 0, width, height), fill=background_color)
         else:
-            # Use default margins.
-            background_rect = (margin, 0, canvas_width - margin, background_height)
-
-        draw.rectangle(background_rect, fill=background_color)
+            # Standard margin background
+            draw.rectangle((margin, 0, width - margin, height), fill=background_color)
+        
+        # Keep existing accent pattern code
+        pattern_margin = 40
+        draw.polygon([(width - pattern_margin, 0),
+                      (width, 0),
+                      (width, pattern_margin)], 
+                      fill=accent_color)
+        draw.polygon([(width - pattern_margin, height),
+                      (width, height - pattern_margin),
+                      (width, height)],
+                      fill=accent_color)
     
     elif style == "minimal":
         # Solid color with subtle corner accent
