@@ -177,15 +177,16 @@ def create_minimalistic_background(size, style="gradient"):
         # Solid background with geometric patterns
         background_color = (0, 45, 98)  # Dark blue
         accent_color = (0, 84, 166)     # Light blue
-        
-        image = Image.new('RGB', size, background_color)
-        draw = ImageDraw.Draw(image)
-        
-        # Draw diagonal stripes
-        stripe_width = 100
-        for i in range(-size[1], size[0] + size[1], stripe_width * 2):
-            points = [(i, 0), (i + size[1], size[1])]
-            draw.line(points, fill=accent_color, width=stripe_width // 2)
+
+        # Check if any line in event_name exceeds 12 characters.
+        if any(len(line) > 12 for line in event_name.splitlines()):
+            # Extend the blue background to the full canvas width.
+            background_rect = (0, 0, canvas_width, background_height)
+        else:
+            # Use default margins.
+            background_rect = (margin, 0, canvas_width - margin, background_height)
+
+        draw.rectangle(background_rect, fill=background_color)
     
     elif style == "minimal":
         # Solid color with subtle corner accent
@@ -366,7 +367,7 @@ def main():
             # Location details with autocomplete suggestions
             place = st.text_input(
                 "Venue Name",
-                value="Gasthaus zum Schaf",
+                value="Gasthaus El Borrego",
                 help="Enter the name of the venue"
             )
 
