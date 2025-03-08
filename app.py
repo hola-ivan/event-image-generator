@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import qrcode
 from math import ceil
+from base64 import b64encode
+import json
 
 # Load environment variables
 load_dotenv()
@@ -530,6 +532,55 @@ def get_icon(icon_name):
     
     return None
 
+def send_to_make_webhook(image, event_details):
+    """Send the generated image and event details to Make.com webhook"""
+    webhook_url = "https://hook.eu2.make.com/damd40lgectmsmlhqg9l3ravlesoslyz"
+    
+    try:
+        # Convert image to base64 to send in JSON payload
+        buffered = BytesIO()
+        image.save(buffered, format="PNG")
+        img_str = b64encode(buffered.getvalue()).decode("utf-8")
+        
+        # Prepare payload with image and event details
+        payload = {
+            "image": img_str,
+            "event_name": event_details["event_name"],
+            "date": event_details["date"],
+            "time": event_details["time"],
+            "place": event_details["place"],
+            "address": event_details["address"]
+        }
+        
+        # Log the request (for debugging)
+        print(f"Sending request to webhook URL: {webhook_url}")
+        print(f"Payload size: {len(str(payload))} bytes")
+        
+        # Send data to webhook with increased timeout
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        response = requests.post(
+            webhook_url, 
+            data=json.dumps(payload),
+            headers=headers,
+            timeout=30  # Increased timeout to 30 seconds
+        )
+        
+        # Log the response
+        print(f"Webhook response status: {response.status_code}")
+        print(f"Webhook response text: {response.text[:100]}...")  # First 100 chars
+        
+        # Check if the request was successful
+        if response.status_code == 200:
+            return True, "Event successfully published!"
+        else:
+            return False, f"Error publishing event: {response.status_code} - {response.text}"
+            
+    except Exception as e:
+        print(f"Exception during webhook call: {str(e)}")
+        return False, f"Error connecting to webhook: {str(e)}"
+
 def main():
     st.set_page_config(
         page_title="Generador de Imagenes para Eventos",
@@ -691,16 +742,52 @@ def main():
                         st.image(image)  # Changed from use_column_width
                         st.markdown("</div>", unsafe_allow_html=True)
                         
-                        # Add download button for each version
-                        buf = BytesIO()
-                        image.save(buf, format="PNG")
-                        st.download_button(
-                            label=f"📥 Download {version}",
-                            data=buf.getvalue(),
-                            file_name=f"event_{date.strftime('%Y%m%d')}_v{idx}.png",
-                            mime="image/png",
-                            use_container_width=True
-                        )
+                        # Create two columns for the buttons
+                        btn_col1, btn_col2 = st.columns(2)
+                        
+                        # Add download button in first column
+                        with btn_col1:
+                            buf = BytesIO()
+                            image.save(buf, format="PNG")
+                            st.download_button(
+                                label=f"📥 Download {version}",
+                                data=buf.getvalue(),
+                                file_name=f"event_{date.strftime('%Y%m%d')}_v{idx}.png",
+                                mime="image/png",
+                                use_container_width=True
+                            )
+                        
+                        # Add publish button in second column
+                        with btn_col2:
+                            if st.button(
+                                "🚀 Publish Event", 
+                                key=f"publish_btn_{idx}_{date}_{time}",  # More unique key
+                                use_container_width=True, 
+                                type="primary"
+                            ):
+                                # Show spinner while publishing
+                                with st.spinner("Publishing event..."):
+                                    # Prepare event details to send
+                                    event_details = {
+                                        "event_name": event_name,
+                                        "date": formatted_date,
+                                        "time": formatted_time,
+                                        "place": place,
+                                        "address": address
+                                    }
+                                    
+                                    # Add debugging in the UI
+                                    st.write("Sending to webhook...")
+                                    
+                                    # Send to webhook with additional logging
+                                    success, message = send_to_make_webhook(image, event_details)
+                                    
+                                    # Show result
+                                    if success:
+                                        st.success(f"✅ {message}")
+                                    else:
+                                        st.error(f"❌ {message}")
+                        
                         st.markdown("<br>", unsafe_allow_html=True)
                 else:
                     st.error("❌ Could not generate any images. Please try again.")
