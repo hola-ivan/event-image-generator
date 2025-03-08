@@ -536,11 +536,34 @@ def send_to_make_webhook(image, event_details):
     """Send the generated image and event details to Make.com webhook"""
     webhook_url = "https://hook.eu2.make.com/damd40lgectmsmlhqg9l3ravlesoslyz"
     
+    # Add debugging messages visible in the UI
+    st.write("⏳ Preparing image for webhook...")
+    
     try:
         # Convert image to base64 to send in JSON payload
         buffered = BytesIO()
         image.save(buffered, format="PNG")
-        img_str = b64encode(buffered.getvalue()).decode("utf-8")
+        img_bytes = buffered.getvalue()
+        img_size_mb = len(img_bytes) / (1024 * 1024)
+        st.write(f"📊 Image size: {img_size_mb:.2f} MB")
+        
+        # Check if the image isn't too large (Make.com might have size limits)
+        if img_size_mb > 5:
+            st.warning(f"⚠️ Image is large ({img_size_mb:.2f} MB). Resizing to reduce size...")
+            # Resize image if too large
+            max_size = (800, 800)  # Reduce dimensions
+            image = image.copy()
+            image.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # Convert again after resize
+            buffered = BytesIO()
+            image.save(buffered, format="PNG", optimize=True, quality=85)
+            img_bytes = buffered.getvalue()
+            img_size_mb = len(img_bytes) / (1024 * 1024)
+            st.write(f"📊 Resized image: {img_size_mb:.2f} MB")
+        
+        img_str = b64encode(img_bytes).decode("utf-8")
+        st.write("✅ Image encoded successfully")
         
         # Prepare payload with image and event details
         payload = {
@@ -552,34 +575,70 @@ def send_to_make_webhook(image, event_details):
             "address": event_details["address"]
         }
         
-        # Log the request (for debugging)
-        print(f"Sending request to webhook URL: {webhook_url}")
-        print(f"Payload size: {len(str(payload))} bytes")
+        # Log the request size
+        payload_size_mb = len(json.dumps(payload)) / (1024 * 1024)
+        st.write(f"📊 Total payload size: {payload_size_mb:.2f} MB")
+        
+        # Check if payload might be too large
+        if payload_size_mb > 10:
+            st.error(f"❌ Payload too large ({payload_size_mb:.2f} MB). Make.com likely has a limit around 10MB.")
+            return False, f"Error: Payload size ({payload_size_mb:.2f} MB) exceeds webhook limits"
+        
+        # Log the request
+        st.write(f"🔗 Sending to webhook: {webhook_url}")
         
         # Send data to webhook with increased timeout
         headers = {
             'Content-Type': 'application/json'
         }
-        response = requests.post(
-            webhook_url, 
-            data=json.dumps(payload),
-            headers=headers,
-            timeout=30  # Increased timeout to 30 seconds
-        )
         
-        # Log the response
-        print(f"Webhook response status: {response.status_code}")
-        print(f"Webhook response text: {response.text[:100]}...")  # First 100 chars
-        
-        # Check if the request was successful
-        if response.status_code == 200:
-            return True, "Event successfully published!"
-        else:
-            return False, f"Error publishing event: {response.status_code} - {response.text}"
+        st.write("⏳ Sending request to webhook...")
+        try:
+            response = requests.post(
+                webhook_url, 
+                data=json.dumps(payload),
+                headers=headers,
+                timeout=60  # Increased timeout to 60 seconds
+            )
+            
+            # Log response details
+            st.write(f"📡 Response status code: {response.status_code}")
+            st.write(f"📡 Response headers: {dict(response.headers)}")
+            
+            # Try to parse response text safely
+            try:
+                response_text = response.text[:500]  # First 500 chars
+                st.write(f"📡 Response text: {response_text}")
+            except:
+                st.write("❌ Could not parse response text")
+            
+            # Check if the request was successful
+            if response.status_code == 200:
+                st.write("🎉 Webhook request successful!")
+                return True, "Event successfully published!"
+            else:
+                st.write(f"❌ Webhook error: Status code {response.status_code}")
+                return False, f"Error from webhook: {response.status_code} - {response.text[:100]}"
+                
+        except requests.exceptions.Timeout:
+            st.write("❌ Webhook request timed out after 60 seconds")
+            return False, "Webhook request timed out after 60 seconds. The image may be too large."
+            
+        except requests.exceptions.ConnectionError:
+            st.write("❌ Connection error when calling webhook")
+            return False, "Connection error. Check your internet connection."
+            
+        except requests.exceptions.RequestException as e:
+            st.write(f"❌ Request exception: {str(e)}")
+            return False, f"Request error: {str(e)}"
             
     except Exception as e:
-        print(f"Exception during webhook call: {str(e)}")
-        return False, f"Error connecting to webhook: {str(e)}"
+        st.write(f"❌ Error preparing webhook data: {str(e)}")
+        # Print full traceback for debugging
+        import traceback
+        st.write("📋 Error traceback:")
+        st.code(traceback.format_exc())
+        return False, f"Error preparing data: {str(e)}"
 
 def main():
     st.set_page_config(
