@@ -5,6 +5,7 @@ from io import BytesIO
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import qrcode
 
 # Load environment variables
 load_dotenv()
@@ -100,7 +101,7 @@ def apply_blue_tint(image):
     return Image.alpha_composite(image, overlay)
 
 def add_footer(image):
-    """Add white footer with logo and call to action"""
+    """Add white footer with logo, call to action, and QR code"""
     # Create a white footer
     footer = Image.new('RGBA', (IMAGE_SIZE[0], FOOTER_HEIGHT), 'white')
     
@@ -130,21 +131,47 @@ def add_footer(image):
         except:
             font = ImageFont.load_default()
             
-        cta_text = "Reserva tu lugar:"
+        cta_text = "RESERVA TU LUGAR EN:"
         link_text = "de.exatec.info/eventos"
         
         # Right-align text with padding
         right_padding = 30
+        qr_size = 100  # Size of the QR code
+        qr_padding = 20  # Padding between text and QR code
+        
+        # Calculate text width and height using newer methods
         cta_width = draw.textlength(cta_text, font=font)
         link_width = draw.textlength(link_text, font=font)
         
-        # Adjust vertical position to align better with logo
-        vertical_offset = 10  # Move text up by 10 pixels
-        cta_pos = (IMAGE_SIZE[0] - cta_width - right_padding, FOOTER_HEIGHT//2 - 20 - vertical_offset)
-        link_pos = (IMAGE_SIZE[0] - link_width - right_padding, FOOTER_HEIGHT//2 + 6 - vertical_offset)
+        # Get font height using font metrics
+        font_height = font.getbbox("Ay")[3]  # Height of text with ascenders and descenders
         
-        draw.text(cta_pos, cta_text, fill='black', font=font)
-        draw.text(link_pos, link_text, fill=(0, 51, 153), font=font)
+        # Position the text to the left of the QR code
+        text_x = IMAGE_SIZE[0] - qr_size - qr_padding - max(cta_width, link_width) - right_padding
+        cta_y = (FOOTER_HEIGHT - 2 * font_height) // 2  # Center vertically
+        link_y = cta_y + font_height + 5  # Slightly below the CTA text
+        
+        # Draw each line of text
+        draw.text((text_x, cta_y), cta_text, fill='black', font=font)
+        draw.text((text_x, link_y), link_text, fill=(0, 51, 153), font=font)
+        
+        # Generate QR code
+        qr_url = "https://de.exatec.info/eventos"
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        
+        qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGBA')
+        qr_img = qr_img.resize((qr_size, qr_size), Image.Resampling.LANCZOS)
+        
+        # Position QR code in the footer
+        qr_pos = (IMAGE_SIZE[0] - qr_size - right_padding, (FOOTER_HEIGHT - qr_size) // 2)
+        footer.paste(qr_img, qr_pos, qr_img)
         
         # Create final image with footer
         final_image = Image.new('RGBA', (IMAGE_SIZE[0], IMAGE_SIZE[1]), (255, 255, 255, 0))
@@ -254,45 +281,114 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
     # Add text
     draw = ImageDraw.Draw(background)
     
-    # Load fonts with regular weight (400)
+    # Load fonts
     try:
-        font_large = ImageFont.truetype(FONT_PATH, 96)
-        font_large.set_variation_by_name('Bold')  # Set event name to bold weight
+        # Load the font path once
+        font_path = FONT_PATH
         
-        font_medium = ImageFont.truetype(FONT_PATH, 36)  # Reduced from 48
+        # Prepare different font sizes for other elements
+        font_medium = ImageFont.truetype(font_path, 36)
         font_medium.set_variation_by_name('Regular')
         
-        font_small = ImageFont.truetype(FONT_PATH, 28)  # Reduced from 36
+        font_small = ImageFont.truetype(font_path, 28)
         font_small.set_variation_by_name('Regular')
     except Exception as e:
         st.error(f"Error loading fonts: {str(e)}")
         return None
     
-    # Calculate text positions relative to the blue rectangle
+    # Calculate text positions
     center_x = IMAGE_SIZE[0] // 2
     
-    # Position text elements with adjusted spacing
+    # Position text elements
     datetime_y = rect_top + 40  # Fixed position from top of blue rectangle
-    event_name_y = rect_top + (rect_height // 2)  # Center in blue rectangle
     place_y = rect_top + rect_height - 80  # Fixed position from bottom
     address_y = place_y + 40  # Fixed spacing below place
     
-    # Draw text elements
-    # Time and date at top with vertical separator
+    # Draw time and date at top
     separator = " | "
     datetime_text = f"{time}{separator}{date}"
     draw.text((center_x, datetime_y), datetime_text, fill="white", anchor="mm", font=font_small)
     
-    # Event name in the middle (can be multiple lines)
-    event_name_lines = [line.strip().upper() for line in event_name.split('\n')]  # Convert to uppercase
-    total_height = len(event_name_lines) * font_large.size
-    current_y = event_name_y - (total_height / 2)
+    # Calculate available space for event name
+    available_height = place_y - datetime_y - 80  # Buffer space above place name
+    max_width = rect_width * 0.85  # Max width within blue rectangle
     
+    # Get event name lines and convert to uppercase
+    event_name_lines = [line.strip().upper() for line in event_name.split('\n') if line.strip()]
+    
+    # Adaptive font sizing for event name
+    initial_font_size = 96  # Start with this size
+    min_font_size = 36     # Don't go smaller than this
+    
+    # Function to check if text fits within constraints
+    def text_fits(lines, font_size):
+        test_font = ImageFont.truetype(font_path, font_size)
+        test_font.set_variation_by_name('Bold')
+        
+        # Calculate total height with line spacing
+        line_spacing = font_size * 0.2  # 20% of font size for spacing
+        total_height = len(lines) * (font_size + line_spacing)
+        
+        # Check height constraint
+        if total_height > available_height:
+            return False
+            
+        # Check width constraint for each line
+        for line in lines:
+            if draw.textlength(line, font=test_font) > max_width:
+                return False
+                
+        return True
+    
+    # Find the largest font size that fits
+    font_size = initial_font_size
+    while font_size >= min_font_size:
+        if text_fits(event_name_lines, font_size):
+            break
+        font_size -= 4  # Decrease by 4pt each time
+    
+    # If text still doesn't fit at minimum size, try wrapping words
+    if font_size < min_font_size:
+        font_size = min_font_size
+        
+        # Combine all text and rewrap
+        all_text = " ".join(event_name_lines)
+        event_name_lines = []
+        words = all_text.split()
+        current_line = []
+        
+        font_event = ImageFont.truetype(font_path, font_size)
+        font_event.set_variation_by_name('Bold')
+        
+        for word in words:
+            test_line = " ".join(current_line + [word]) if current_line else word
+            if draw.textlength(test_line, font=font_event) <= max_width:
+                current_line.append(word)
+            else:
+                if current_line:  # Add completed line
+                    event_name_lines.append(" ".join(current_line))
+                current_line = [word]  # Start new line with current word
+                
+        # Add the last line if it exists
+        if current_line:
+            event_name_lines.append(" ".join(current_line))
+    
+    # Create final font with determined size
+    font_event = ImageFont.truetype(font_path, font_size)
+    font_event.set_variation_by_name('Bold')
+    
+    # Calculate position to center the text block vertically
+    line_spacing = font_size * 0.2
+    total_height = len(event_name_lines) * (font_size + line_spacing)
+    event_name_y = datetime_y + 80 + (available_height - total_height) / 2
+    
+    # Draw each line of the event name
+    current_y = event_name_y
     for line in event_name_lines:
-        draw.text((center_x, current_y), line, fill="white", anchor="mm", font=font_large)
-        current_y += font_large.size
+        draw.text((center_x, current_y), line, fill="white", anchor="mm", font=font_event)
+        current_y += font_size + line_spacing
     
-    # Place and address at bottom
+    # Draw place and address
     draw.text((center_x, place_y), place, fill="white", anchor="mm", font=font_medium)
     draw.text((center_x, address_y), address, fill="white", anchor="mm", font=font_small)
     
@@ -487,7 +583,7 @@ def main():
                     color: #666666;
                     margin: 20px 0;
                 ">
-                    <h3>Your event images will appear here</h3>
+                    <h3>Your event images will appear here</3>
                     <p>Fill in the details and click "Generate Images"</p>
                 </div>
                 """,
