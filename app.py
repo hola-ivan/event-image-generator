@@ -1,11 +1,12 @@
 import streamlit as st
 import requests
-from PIL import Image, ImageDraw, ImageFont, ImageColor
+from PIL import Image, ImageDraw, ImageFont, ImageColor, ImageFilter, ImageOps
 from io import BytesIO
 import os
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 import qrcode
+from math import ceil
 
 # Load environment variables
 load_dotenv()
@@ -19,10 +20,14 @@ if not PEXELS_API_KEY or PEXELS_API_KEY == 'your_pexels_api_key_here':
 
 # Constants for image generation
 IMAGE_SIZE = (1080, 1080)
-FOOTER_HEIGHT = 150
+FOOTER_HEIGHT = 160  # Slightly taller footer for better spacing
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png")
 LOGO_HEIGHT = 120
 FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "Montserrat-VariableFont_wght.ttf")
+EXATEC_BLUE = (0, 61, 165)  # Main EXATEC blue
+EXATEC_LIGHT_BLUE = (41, 128, 185)  # Lighter blue for better contrast
+ACCENT_COLOR = (255, 200, 0)  # Golden accent color
+ICON_SIZE = 24  # Size of icons
 
 # Download fonts if they don't exist
 def download_font(url, save_path):
@@ -101,9 +106,9 @@ def apply_blue_tint(image):
     return Image.alpha_composite(image, overlay)
 
 def add_footer(image):
-    """Add white footer with logo, call to action, and QR code"""
-    # Create a white footer
-    footer = Image.new('RGBA', (IMAGE_SIZE[0], FOOTER_HEIGHT), 'white')
+    """Add white footer with logo, call to action, and QR code - improved design"""
+    # Create a white footer with no gradient - just plain white as per feedback
+    footer = Image.new('RGBA', (IMAGE_SIZE[0], FOOTER_HEIGHT), (255, 255, 255, 255))
     
     try:
         # Load and resize logo
@@ -117,61 +122,89 @@ def add_footer(image):
         logo = logo.resize((logo_width, LOGO_HEIGHT), Image.Resampling.LANCZOS)
         
         # Calculate positions
-        logo_pos = (30, (FOOTER_HEIGHT - LOGO_HEIGHT) // 2)
+        logo_pos = (40, (FOOTER_HEIGHT - LOGO_HEIGHT) // 2)  # More left padding
         
         # Paste logo
         footer.paste(logo, logo_pos, logo if logo.mode == 'RGBA' else None)
         
         # Add call to action text
         draw = ImageDraw.Draw(footer)
+        
         try:
-            # Use Montserrat font with regular weight
-            font = ImageFont.truetype(FONT_PATH, 28)
-            font.set_variation_by_name('Regular')  # Set to regular weight
+            # Use Montserrat font with different weights for hierarchy
+            font_cta = ImageFont.truetype(FONT_PATH, 26)
+            font_cta.set_variation_by_name('SemiBold')  # Semi-bold for CTA
+            
+            font_link = ImageFont.truetype(FONT_PATH, 32)
+            font_link.set_variation_by_name('Bold')  # Bold for link
         except:
-            font = ImageFont.load_default()
+            font_cta = ImageFont.load_default()
+            font_link = ImageFont.load_default()
             
         cta_text = "RESERVA TU LUGAR EN:"
         link_text = "de.exatec.info/eventos"
         
         # Right-align text with padding
-        right_padding = 30
-        qr_size = 100  # Size of the QR code
-        qr_padding = 20  # Padding between text and QR code
+        right_padding = 35
+        qr_size = 110  # Slightly larger QR code
+        qr_padding = 25  # Padding between text and QR code
         
         # Calculate text width and height using newer methods
-        cta_width = draw.textlength(cta_text, font=font)
-        link_width = draw.textlength(link_text, font=font)
+        cta_width = draw.textlength(cta_text, font=font_cta)
+        link_width = draw.textlength(link_text, font=font_link)
         
-        # Get font height using font metrics
-        font_height = font.getbbox("Ay")[3]  # Height of text with ascenders and descenders
+        # Get font heights using font metrics
+        cta_height = font_cta.getbbox("Ay")[3]
+        link_height = font_link.getbbox("Ay")[3]
         
         # Position the text to the left of the QR code
         text_x = IMAGE_SIZE[0] - qr_size - qr_padding - max(cta_width, link_width) - right_padding
-        cta_y = (FOOTER_HEIGHT - 2 * font_height) // 2  # Center vertically
-        link_y = cta_y + font_height + 5  # Slightly below the CTA text
+        cta_y = (FOOTER_HEIGHT - cta_height - link_height - 8) // 2  # Center vertically
+        link_y = cta_y + cta_height + 8  # Slightly below the CTA text
         
-        # Draw each line of text
-        draw.text((text_x, cta_y), cta_text, fill='black', font=font)
-        draw.text((text_x, link_y), link_text, fill=(0, 51, 153), font=font)
+        # Draw call to action with EXATEC blue color
+        draw.text((text_x, cta_y), cta_text, fill=EXATEC_BLUE, anchor="lt", font=font_cta)
         
-        # Generate QR code
+        # Draw link with accent color for emphasis
+        draw.text((text_x, link_y), link_text, fill=EXATEC_LIGHT_BLUE, anchor="lt", font=font_link)
+        
+        # Generate QR code with improved quality
         qr_url = "https://de.exatec.info/eventos"
         qr = qrcode.QRCode(
             version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,  # High error correction
             box_size=10,
-            border=4,
+            border=2,  # Smaller border for better look
         )
         qr.add_data(qr_url)
         qr.make(fit=True)
         
-        qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGBA')
+        qr_img = qr.make_image(fill_color=EXATEC_BLUE, back_color="white").convert('RGBA')
         qr_img = qr_img.resize((qr_size, qr_size), Image.Resampling.LANCZOS)
         
+        # Add subtle rounded border to QR code
+        qr_with_border = Image.new('RGBA', (qr_size + 8, qr_size + 8), (255, 255, 255, 0))
+        draw_border = ImageDraw.Draw(qr_with_border)
+        draw_border.rounded_rectangle(
+            [(0, 0), (qr_size + 7, qr_size + 7)], 
+            radius=5,
+            fill=(255, 255, 255, 255),
+            outline=EXATEC_LIGHT_BLUE, 
+            width=2
+        )
+        qr_with_border.paste(qr_img, (4, 4), qr_img)
+        
         # Position QR code in the footer
-        qr_pos = (IMAGE_SIZE[0] - qr_size - right_padding, (FOOTER_HEIGHT - qr_size) // 2)
-        footer.paste(qr_img, qr_pos, qr_img)
+        qr_pos = (IMAGE_SIZE[0] - qr_size - right_padding - 4, (FOOTER_HEIGHT - qr_size - 8) // 2)
+        footer.paste(qr_with_border, (qr_pos[0]-4, qr_pos[1]-4), qr_with_border)
+        
+        # Add subtle separator line between logo and text
+        separator_x = logo_pos[0] + logo_width + 40
+        draw.line(
+            [(separator_x, FOOTER_HEIGHT//4), (separator_x, 3*FOOTER_HEIGHT//4)],
+            fill=(200, 200, 200, 150),
+            width=1
+        )
         
         # Create final image with footer
         final_image = Image.new('RGBA', (IMAGE_SIZE[0], IMAGE_SIZE[1]), (255, 255, 255, 0))
@@ -189,7 +222,7 @@ def create_minimalistic_background(size, style="gradient"):
     draw = ImageDraw.Draw(image)
     
     if style == "gradient":
-        # EXATEC blue gradient
+        # EXATEC blue gradient with improved colors
         top_color = (0, 45, 98)     # Dark blue
         bottom_color = (0, 84, 166)  # Light blue
         
@@ -199,50 +232,43 @@ def create_minimalistic_background(size, style="gradient"):
             g = int(top_color[1] * (1 - ratio) + bottom_color[1] * ratio)
             b = int(top_color[2] * (1 - ratio) + bottom_color[2] * ratio)
             draw.line([(0, y), (size[0], y)], fill=(r, g, b))
+            
+        # Add subtle pattern overlay
+        for i in range(0, size[1], 20):
+            opacity = int(40 * (1 - i/size[1]))  # Fade out toward bottom
+            draw.line([(0, i), (size[0], i)], fill=(255, 255, 255, opacity), width=1)
     
     elif style == "geometric":
-        # Solid background with geometric patterns
+        # Improved geometric pattern
         background_color = (0, 45, 98)  # Dark blue
         accent_color = (0, 84, 166)     # Light blue
         
-        # Check if any line in event_name exceeds max width
-        long_text = any(len(line.strip()) > 12 for line in event_name.splitlines())
+        # Fill background
+        draw.rectangle((0, 0, size[0], size[1]), fill=background_color)
         
-        # Set background dimensions
-        if long_text:
-            # Full width background
-            draw.rectangle((0, 0, width, height), fill=background_color)
-        else:
-            # Standard margin background
-            draw.rectangle((margin, 0, width - margin, height), fill=background_color)
-        
-        # Keep existing accent pattern code
-        pattern_margin = 40
-        draw.polygon([(width - pattern_margin, 0),
-                      (width, 0),
-                      (width, pattern_margin)], 
+        # Add abstract geometric elements
+        # Top right corner triangle
+        draw.polygon([(size[0]-200, 0),
+                      (size[0], 0),
+                      (size[0], 200)], 
                       fill=accent_color)
-        draw.polygon([(width - pattern_margin, height),
-                      (width, height - pattern_margin),
-                      (width, height)],
+        
+        # Bottom left corner triangle
+        draw.polygon([(0, size[1]),
+                      (0, size[1]-200),
+                      (200, size[1])],
                       fill=accent_color)
-    
-    elif style == "minimal":
-        # Solid color with subtle corner accent
-        main_color = (0, 45, 98)    # Dark blue
-        accent_color = (0, 84, 166)  # Light blue
-        
-        image = Image.new('RGB', size, main_color)
-        draw = ImageDraw.Draw(image)
-        
-        # Draw corner accent
-        corner_size = size[0] // 4
-        draw.rectangle([(0, 0), (corner_size, corner_size)], fill=accent_color)
+                      
+        # Add subtle dot pattern
+        for x in range(0, size[0], 40):
+            for y in range(0, size[1], 40):
+                if (x + y) % 80 == 0:
+                    draw.ellipse([(x-2, y-2), (x+2, y+2)], fill=(255, 255, 255, 30))
     
     return image
 
 def create_event_image(time, date, event_name, place, address, query=None, page=1):
-    """Create the event image with all details"""
+    """Create the event image with all details and improved visual design"""
     # Create or fetch background
     if query and query.strip():
         # If query is provided, try to fetch image from Pexels
@@ -250,29 +276,52 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
         if background:
             # Resize and crop to square
             background = background.resize(IMAGE_SIZE)
-            # Apply blue tint
-            background = apply_blue_tint(background)
+            # Apply blue tint with more transparency for better contrast
+            overlay = Image.new('RGBA', IMAGE_SIZE, (0, 30, 90, 150))  # More transparent blue
+            background = background.convert('RGBA')
+            background = Image.alpha_composite(background, overlay)
+            
+            # Apply subtle blur for more professional look
+            background = background.filter(ImageFilter.GaussianBlur(radius=2))
         else:
             # Fallback to white background if fetch fails
             background = Image.new('RGB', IMAGE_SIZE, 'white')
     else:
-        # Use white background if no query provided
+        # Always use white background when no query is provided
         background = Image.new('RGB', IMAGE_SIZE, 'white')
 
-    # Create a new layer for the blue rectangle
+    # Create a new layer for the blue rectangle with improved styling
     blue_overlay = Image.new('RGBA', IMAGE_SIZE, (0, 0, 0, 0))
     draw_overlay = ImageDraw.Draw(blue_overlay)
     
-    # Define the blue rectangle dimensions (centered, 80% of width)
-    rect_width = int(IMAGE_SIZE[0] * 0.8)
-    rect_height = int(IMAGE_SIZE[1] * 0.6)
+    # Define the blue rectangle dimensions (centered, 85% of width for more impact)
+    rect_width = int(IMAGE_SIZE[0] * 0.85)
+    rect_height = int(IMAGE_SIZE[1] * 0.65)  # Slightly taller for better content spacing
     rect_left = (IMAGE_SIZE[0] - rect_width) // 2
-    rect_top = int(IMAGE_SIZE[1] * 0.15)  # Start at 15% from top instead of center
-    
-    # Draw the semi-transparent blue rectangle
+    rect_top = int(IMAGE_SIZE[1] * 0.14)  # Start a bit higher
+
+    # Draw the semi-transparent blue rectangle with darker blue color as requested
+    darker_blue = (0, 83, 255)  # RGB (0, 83, 255) as requested
     draw_overlay.rectangle(
         [(rect_left, rect_top), (rect_left + rect_width, rect_top + rect_height)],
-        fill=(0, 82, 204, 255)  # Solid blue color with full opacity
+        fill=darker_blue + (230,)  # Darker blue with slight transparency
+    )
+    
+    # Add subtle border around the rectangle
+    border_width = 3
+    draw_overlay.rectangle(
+        [(rect_left-border_width, rect_top-border_width), 
+         (rect_left + rect_width+border_width, rect_top + rect_height+border_width)],
+        outline=(255, 255, 255, 180),  # White semi-transparent border
+        width=border_width
+    )
+    
+    # Add accent line at the top using light blue (#54C0E8) instead of yellow
+    accent_height = 6
+    light_blue = (84, 192, 232)  # #54C0E8 in RGB
+    draw_overlay.rectangle(
+        [(rect_left, rect_top), (rect_left + rect_width, rect_top + accent_height)],
+        fill=light_blue + (255,)  # Light blue accent with full opacity
     )
     
     # Composite the blue overlay onto the background
@@ -286,12 +335,15 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
         # Load the font path once
         font_path = FONT_PATH
         
-        # Prepare different font sizes for other elements
-        font_medium = ImageFont.truetype(font_path, 36)
-        font_medium.set_variation_by_name('Regular')
+        # Prepare different font sizes with more variation for hierarchy
+        font_datetime = ImageFont.truetype(font_path, 30)  # Slightly larger
+        font_datetime.set_variation_by_name('SemiBold')  # Semi-bold weight
         
-        font_small = ImageFont.truetype(font_path, 28)
-        font_small.set_variation_by_name('Regular')
+        font_place = ImageFont.truetype(font_path, 40)  # Larger for venue
+        font_place.set_variation_by_name('SemiBold')  # Semi-bold weight
+        
+        font_address = ImageFont.truetype(font_path, 30)  # Slightly larger
+        font_address.set_variation_by_name('Regular')  # Regular weight
     except Exception as e:
         st.error(f"Error loading fonts: {str(e)}")
         return None
@@ -299,26 +351,60 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
     # Calculate text positions
     center_x = IMAGE_SIZE[0] // 2
     
-    # Position text elements
-    datetime_y = rect_top + 40  # Fixed position from top of blue rectangle
-    place_y = rect_top + rect_height - 80  # Fixed position from bottom
-    address_y = place_y + 40  # Fixed spacing below place
+    # Position text elements with improved spacing
+    datetime_y = rect_top + 50  # More space from top of blue rectangle
+    place_y = rect_top + rect_height - 95  # More space from bottom
+    address_y = place_y + 45  # More spacing below place
     
-    # Draw time and date at top
-    separator = " | "
-    datetime_text = f"{time}{separator}{date}"
-    draw.text((center_x, datetime_y), datetime_text, fill="white", anchor="mm", font=font_small)
+    # Draw time and date at top with icons
+    clock_icon = get_icon("clock")
+    calendar_icon = get_icon("calendar")
+    # We no longer need the location icon as per feedback
+    # location_icon = get_icon("location")
+    
+    # Format time and date nicely
+    time_text = time
+    date_text = date
+    
+    # Calculate icon positions
+    icon_spacing = 10
+    time_width = draw.textlength(time_text, font=font_datetime)
+    date_width = draw.textlength(date_text, font=font_datetime)
+    
+    # Position for time with icon
+    if clock_icon:
+        time_icon_x = center_x - (time_width + ICON_SIZE + icon_spacing + 20 + date_width + ICON_SIZE + icon_spacing) // 2
+        time_text_x = time_icon_x + ICON_SIZE + icon_spacing
+        # Convert to integers with int()
+        clock_pos = (int(time_icon_x), int(datetime_y - ICON_SIZE//2))
+        background.paste(clock_icon, clock_pos, clock_icon)
+    else:
+        time_text_x = center_x - (time_width + 20 + date_width) // 2
+    
+    # Position for date with icon
+    if calendar_icon:
+        date_icon_x = time_text_x + time_width + 20
+        date_text_x = date_icon_x + ICON_SIZE + icon_spacing
+        # Convert to integers with int()
+        calendar_pos = (int(date_icon_x), int(datetime_y - ICON_SIZE//2))
+        background.paste(calendar_icon, calendar_pos, calendar_icon)
+    else:
+        date_text_x = time_text_x + time_width + 20
+    
+    # Draw time and date texts
+    draw.text((time_text_x, datetime_y), time_text, fill="white", anchor="lm", font=font_datetime)
+    draw.text((date_text_x, datetime_y), date_text, fill="white", anchor="lm", font=font_datetime)
     
     # Calculate available space for event name
-    available_height = place_y - datetime_y - 80  # Buffer space above place name
-    max_width = rect_width * 0.85  # Max width within blue rectangle
+    available_height = place_y - datetime_y - 100  # More buffer space
+    max_width = rect_width * 0.88  # Slightly wider max width
     
     # Get event name lines and convert to uppercase
     event_name_lines = [line.strip().upper() for line in event_name.split('\n') if line.strip()]
     
-    # Adaptive font sizing for event name
-    initial_font_size = 96  # Start with this size
-    min_font_size = 36     # Don't go smaller than this
+    # Adaptive font sizing for event name - increased initial size
+    initial_font_size = 110  # Start with larger size for more impact
+    min_font_size = 40     # Don't go smaller than this
     
     # Function to check if text fits within constraints
     def text_fits(lines, font_size):
@@ -378,24 +464,71 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
     font_event.set_variation_by_name('Bold')
     
     # Calculate position to center the text block vertically
-    line_spacing = font_size * 0.2
-    total_height = len(event_name_lines) * (font_size + line_spacing)
-    event_name_y = datetime_y + 80 + (available_height - total_height) / 2
+    line_spacing = font_size * 0.25  # Increased spacing between event name lines
+    total_height = len(event_name_lines) * (font_size + line_spacing) - line_spacing  # Subtract last spacing
+    event_name_y = datetime_y + 85 + (available_height - total_height) / 2
     
-    # Draw each line of the event name
+    # Draw each line of the event name with enhanced styling
     current_y = event_name_y
-    for line in event_name_lines:
+    for i, line in enumerate(event_name_lines):
+        # Add subtle text shadow for better visibility
+        shadow_offset = max(2, ceil(font_size / 30))  # Dynamic shadow based on font size
+        draw.text((center_x+shadow_offset, current_y+shadow_offset), line, 
+                  fill=(0, 0, 0, 100), anchor="mm", font=font_event)
+        
+        # Draw main text
         draw.text((center_x, current_y), line, fill="white", anchor="mm", font=font_event)
+            
         current_y += font_size + line_spacing
     
-    # Draw place and address
-    draw.text((center_x, place_y), place, fill="white", anchor="mm", font=font_medium)
-    draw.text((center_x, address_y), address, fill="white", anchor="mm", font=font_small)
+    # Draw place name with subtle shadow - no location icon as per feedback
+    shadow_offset = 2
+    draw.text((center_x+shadow_offset, place_y+shadow_offset), place, 
+              fill=(0, 0, 0, 100), anchor="mm", font=font_place)
+    draw.text((center_x, place_y), place, fill="white", anchor="mm", font=font_place)
+    
+    # Draw address in regular weight
+    draw.text((center_x, address_y), address, fill="white", anchor="mm", font=font_address)
     
     # Add footer
     final_image = add_footer(background)
     
     return final_image
+
+# Function to load or download icons
+def get_icon(icon_name):
+    icons_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "icons")
+    os.makedirs(icons_dir, exist_ok=True)
+    
+    icon_path = os.path.join(icons_dir, f"{icon_name}.png")
+    
+    if not os.path.exists(icon_path):
+        # Dictionary of icon URLs - you can replace these with your preferred icons
+        icon_urls = {
+            "clock": "https://cdn-icons-png.flaticon.com/512/2088/2088617.png",
+            "calendar": "https://cdn-icons-png.flaticon.com/512/2693/2693507.png",
+            "location": "https://cdn-icons-png.flaticon.com/512/1180/1180755.png"
+        }
+        
+        if icon_name in icon_urls:
+            try:
+                response = requests.get(icon_urls[icon_name])
+                if response.status_code == 200:
+                    with open(icon_path, 'wb') as f:
+                        f.write(response.content)
+            except Exception as e:
+                print(f"Error downloading icon {icon_name}: {str(e)}")
+                return None
+    
+    if os.path.exists(icon_path):
+        try:
+            icon = Image.open(icon_path).convert("RGBA")
+            icon = icon.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
+            return icon
+        except Exception as e:
+            print(f"Error loading icon {icon_name}: {str(e)}")
+    
+    return None
 
 def main():
     st.set_page_config(
