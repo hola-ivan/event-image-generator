@@ -565,12 +565,7 @@ def send_webhook(image, event_details):
         img_hash = hashlib.sha224(img_bytes).hexdigest()
         
         # Determine base URL based on environment
-        if "STREAMLIT_SHARING" in os.environ or "STREAMLIT_APP_NAME" in os.environ:
-            # We're in Streamlit Cloud
-            base_url = "https://exatec-alemania-posters-para-eventos.streamlit.app"
-        else:
-            # Local development - get from session state if available
-            base_url = st.session_state.get('base_url', 'http://localhost:8501')
+        base_url = "https://exatec-alemania-posters-para-eventos.streamlit.app"
         
         # Construct the image URL
         image_url = f"{base_url}/~/+/media/{img_hash}.png"
