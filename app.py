@@ -538,12 +538,11 @@ def get_icon(icon_name):
 
 def send_webhook(image, event_details):
     """
-    Improved webhook function that sends event details and actual image URL to a webhook endpoint
+    Send event details and base64-encoded image to a webhook endpoint
     Returns: (success_boolean, message)
     """
-    import hashlib
-    import os
-    import uuid
+    import base64
+    import traceback
     
     # Webhook URL
     webhook_url = "https://hook.eu2.make.com/damd40lgectmsmlhqg9l3ravlesoslyz"
@@ -558,60 +557,21 @@ def send_webhook(image, event_details):
             rgb_image.paste(image, mask=image.split()[3])
             image = rgb_image
         
-        # Save as PNG
-        image.save(buffered, format="PNG")
+        # Save as JPEG for smaller payload size (compared to PNG)
+        image.save(buffered, format="JPEG", quality=90)
         img_bytes = buffered.getvalue()
         
-        # Store the image bytes in session state with a unique key 
-        # so we can access it when the download button is clicked
-        unique_id = str(uuid.uuid4())
-        st.session_state[f"webhook_image_{unique_id}"] = img_bytes
-        st.session_state[f"webhook_payload_{unique_id}"] = {
+        # Convert to base64
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+        
+        # Create payload with base64 image and other details
+        payload = {
+            "image": img_base64,  # The base64-encoded image data
             "event_name": event_details["event_name"],
             "date": event_details["date"],
             "time": event_details["time"],
             "place": event_details["place"],
             "address": event_details["address"]
-        }
-        
-        # Create a placeholder to temporarily display the download button
-        download_placeholder = st.empty()
-        
-        # This download button is only used to get the URL - it won't be visible to user
-        with download_placeholder:
-            download_btn = st.download_button(
-                "Hidden Download",
-                data=img_bytes,
-                file_name=f"temp_event_image_{unique_id}.png",
-                mime="image/png",
-                key=f"hidden_download_{unique_id}"
-            )
-        
-        # Get the URL from the download button's anchor tag
-        # This is a hack to extract the actual URL created by Streamlit
-        # We'll need to monitor and extract this URL from the frontend
-        
-        # For now, we'll use our best approximation of the URL
-        # Base URL for production
-        base_url = "https://exatec-alemania-posters-para-eventos.streamlit.app"
-        
-        # Use the SHA-256 hash instead of SHA-224 for better compatibility
-        img_hash = hashlib.sha256(img_bytes).hexdigest()
-        
-        # Construct the image URL following Streamlit's pattern
-        image_url = f"{base_url}/~/+/media/{img_hash}.png"
-        
-        # Clear the placeholder to hide the download button
-        download_placeholder.empty()
-        
-        # For debugging: show the hash we're using
-        st.write(f"Image hash: {img_hash}")
-        st.write(f"Image URL: {image_url}")
-        
-        # Create payload with image URL
-        payload = {
-            "image_url": image_url,
-            **st.session_state[f"webhook_payload_{unique_id}"]
         }
         
         # Send the request
@@ -623,12 +583,6 @@ def send_webhook(image, event_details):
             timeout=30
         )
         
-        # Clean up session state
-        if f"webhook_image_{unique_id}" in st.session_state:
-            del st.session_state[f"webhook_image_{unique_id}"]
-        if f"webhook_payload_{unique_id}" in st.session_state:
-            del st.session_state[f"webhook_payload_{unique_id}"]
-        
         # Check response
         if response.status_code == 200:
             return True, "Event successfully published!"
@@ -636,7 +590,6 @@ def send_webhook(image, event_details):
             return False, f"Error: {response.status_code} - {response.text[:100]}"
             
     except Exception as e:
-        import traceback
         st.error(f"Error: {str(e)}")
         st.write(traceback.format_exc())
         return False, f"Error preparing data: {str(e)}"
