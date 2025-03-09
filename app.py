@@ -10,6 +10,10 @@ from math import ceil
 from base64 import b64encode
 import json
 
+# Initialize session state to store webhook debug info
+if 'webhook_debug' not in st.session_state:
+    st.session_state.webhook_debug = {}
+
 # Load environment variables
 load_dotenv()
 
@@ -303,10 +307,10 @@ def create_event_image(time, date, event_name, place, address, query=None, page=
     rect_top = int(IMAGE_SIZE[1] * 0.14)  # Start a bit higher
 
     # Draw the semi-transparent blue rectangle with darker blue color as requested
-    darker_blue = (0, 83, 255)  # RGB (0, 83, 255) as requested
+    darker_blue = (0, 83, 255, 255)  # RGB (0, 83, 255) with full opacity
     draw_overlay.rectangle(
         [(rect_left, rect_top), (rect_left + rect_width, rect_top + rect_height)],
-        fill=darker_blue + (230,)  # Darker blue with slight transparency
+        fill=darker_blue  # Darker blue with full opacity
     )
     
     # Add subtle border around the rectangle
@@ -532,42 +536,50 @@ def get_icon(icon_name):
     
     return None
 
-def send_to_make_webhook(image, event_details):
-    """Send the generated image and event details to Make.com webhook"""
+def send_webhook(image, event_details):
+    """
+    Simplified webhook function that sends event details and image URL to a webhook endpoint
+    Returns: (success_boolean, message)
+    """
+    import hashlib
+    import os
+    
+    # Webhook URL
     webhook_url = "https://hook.eu2.make.com/damd40lgectmsmlhqg9l3ravlesoslyz"
     
-    # Add debugging messages visible in the UI
-    st.write("⏳ Preparing image for webhook...")
-    
     try:
-        # Convert image to base64 to send in JSON payload
+        # Create a buffer for the image
         buffered = BytesIO()
+        
+        # Ensure image is in RGB format (not RGBA)
+        if image.mode == 'RGBA':
+            rgb_image = Image.new('RGB', image.size, (255, 255, 255))
+            rgb_image.paste(image, mask=image.split()[3])
+            image = rgb_image
+        
+        # Save as PNG
         image.save(buffered, format="PNG")
         img_bytes = buffered.getvalue()
-        img_size_mb = len(img_bytes) / (1024 * 1024)
-        st.write(f"📊 Image size: {img_size_mb:.2f} MB")
         
-        # Check if the image isn't too large (Make.com might have size limits)
-        if img_size_mb > 5:
-            st.warning(f"⚠️ Image is large ({img_size_mb:.2f} MB). Resizing to reduce size...")
-            # Resize image if too large
-            max_size = (800, 800)  # Reduce dimensions
-            image = image.copy()
-            image.thumbnail(max_size, Image.Resampling.LANCZOS)
-            
-            # Convert again after resize
-            buffered = BytesIO()
-            image.save(buffered, format="PNG", optimize=True, quality=85)
-            img_bytes = buffered.getvalue()
-            img_size_mb = len(img_bytes) / (1024 * 1024)
-            st.write(f"📊 Resized image: {img_size_mb:.2f} MB")
+        # Create a hash of the image for the filename
+        img_hash = hashlib.sha224(img_bytes).hexdigest()
         
-        img_str = b64encode(img_bytes).decode("utf-8")
-        st.write("✅ Image encoded successfully")
+        # Determine base URL based on environment
+        if "STREAMLIT_SHARING" in os.environ or "STREAMLIT_APP_NAME" in os.environ:
+            # We're in Streamlit Cloud
+            base_url = "https://exatec-alemania-posters-para-eventos.streamlit.app"
+        else:
+            # Local development - get from session state if available
+            base_url = st.session_state.get('base_url', 'http://localhost:8501')
         
-        # Prepare payload with image and event details
+        # Construct the image URL
+        image_url = f"{base_url}/~/+/media/{img_hash}.png"
+        
+        st.write(f"Image URL: {image_url}")
+        
+        # Create payload with image URL instead of base64 data
         payload = {
-            "image": img_str,
+            "image_url": image_url,
             "event_name": event_details["event_name"],
             "date": event_details["date"],
             "time": event_details["time"],
@@ -575,69 +587,25 @@ def send_to_make_webhook(image, event_details):
             "address": event_details["address"]
         }
         
-        # Log the request size
-        payload_size_mb = len(json.dumps(payload)) / (1024 * 1024)
-        st.write(f"📊 Total payload size: {payload_size_mb:.2f} MB")
+        # Send the request
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(
+            webhook_url,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
         
-        # Check if payload might be too large
-        if payload_size_mb > 10:
-            st.error(f"❌ Payload too large ({payload_size_mb:.2f} MB). Make.com likely has a limit around 10MB.")
-            return False, f"Error: Payload size ({payload_size_mb:.2f} MB) exceeds webhook limits"
-        
-        # Log the request
-        st.write(f"🔗 Sending to webhook: {webhook_url}")
-        
-        # Send data to webhook with increased timeout
-        headers = {
-            'Content-Type': 'application/json'
-        }
-        
-        st.write("⏳ Sending request to webhook...")
-        try:
-            response = requests.post(
-                webhook_url, 
-                data=json.dumps(payload),
-                headers=headers,
-                timeout=60  # Increased timeout to 60 seconds
-            )
-            
-            # Log response details
-            st.write(f"📡 Response status code: {response.status_code}")
-            st.write(f"📡 Response headers: {dict(response.headers)}")
-            
-            # Try to parse response text safely
-            try:
-                response_text = response.text[:500]  # First 500 chars
-                st.write(f"📡 Response text: {response_text}")
-            except:
-                st.write("❌ Could not parse response text")
-            
-            # Check if the request was successful
-            if response.status_code == 200:
-                st.write("🎉 Webhook request successful!")
-                return True, "Event successfully published!"
-            else:
-                st.write(f"❌ Webhook error: Status code {response.status_code}")
-                return False, f"Error from webhook: {response.status_code} - {response.text[:100]}"
-                
-        except requests.exceptions.Timeout:
-            st.write("❌ Webhook request timed out after 60 seconds")
-            return False, "Webhook request timed out after 60 seconds. The image may be too large."
-            
-        except requests.exceptions.ConnectionError:
-            st.write("❌ Connection error when calling webhook")
-            return False, "Connection error. Check your internet connection."
-            
-        except requests.exceptions.RequestException as e:
-            st.write(f"❌ Request exception: {str(e)}")
-            return False, f"Request error: {str(e)}"
+        # Check response
+        if response.status_code == 200:
+            return True, "Event successfully published!"
+        else:
+            return False, f"Error: {response.status_code} - {response.text[:100]}"
             
     except Exception as e:
-        st.write(f"❌ Error preparing webhook data: {str(e)}")
-        # Print full traceback for debugging
         import traceback
-        st.write("📋 Error traceback:")
-        st.code(traceback.format_exc())
+        st.error(f"Error: {str(e)}")
+        st.write(traceback.format_exc())
         return False, f"Error preparing data: {str(e)}"
 
 def main():
@@ -735,6 +703,10 @@ def main():
                     value="",
                     help="Add specific keywords to customize the background image. Leave empty for white background."
                 )
+                
+            # Option to publish to webhook automatically
+            auto_publish = st.checkbox("Automatically publish to website", value=True,
+                help="When checked, the event image will be automatically sent to the website")
 
             # Center the generate button and make it more prominent
             col1_1, col1_2, col1_3 = st.columns([1, 2, 1])
@@ -751,101 +723,100 @@ def main():
         
         if generate_button:
             with st.spinner("🎨 Creating your event images..."):
-                # Generate five different versions
+                # Always generate a white background version first
+                white_bg_image = create_event_image(
+                    formatted_time,
+                    formatted_date,
+                    event_name,
+                    place,
+                    address,
+                    query=None
+                )
+                
+                # Prepare event details for webhook
+                event_details = {
+                    "event_name": event_name,
+                    "date": formatted_date,
+                    "time": formatted_time,
+                    "place": place,
+                    "address": address
+                }
+                
+                # If auto-publish is enabled, send the white background image
+                if auto_publish and white_bg_image:
+                    with st.status("Publishing event to website...") as status:
+                        success, message = send_webhook(white_bg_image, event_details)
+                        if success:
+                            status.update(label="✅ " + message, state="complete")
+                        else:
+                            status.update(label="❌ " + message, state="error")
+                
+                # Generate additional versions with backgrounds if keywords provided
                 images = []
+                if white_bg_image:
+                    images.append((white_bg_image, "White Background"))
                 
                 if background_keywords.strip():
                     # When background keywords are provided, use them as the main search term
                     # and fetch different pages to ensure variety
                     search_query = background_keywords
                     
-                    # Try to generate 5 unique images using different pages
-                    for page_num in range(1, 8):  # Try up to page 8 to get 5 images
-                        if len(images) >= 5:
-                            break
+                    # Try to generate additional images using different pages
+                    for page_num in range(1, 4):  # Generate up to 3 background variations
+                        with st.spinner(f"Creating variation {page_num}..."):
+                            image = create_event_image(
+                                formatted_time,
+                                formatted_date,
+                                event_name,
+                                place,
+                                address,
+                                query=search_query,
+                                page=page_num
+                            )
                             
-                        image = create_event_image(
-                            formatted_time,
-                            formatted_date,
-                            event_name,
-                            place,
-                            address,
-                            query=search_query,
-                            page=page_num
-                        )
-                        
-                        if image:
-                            images.append((image, f"Version {len(images) + 1}"))
-                else:
-                    # Use white background
-                    image = create_event_image(
-                        formatted_time,
-                        formatted_date,
-                        event_name,
-                        place,
-                        address,
-                        query=None
-                    )
-                    
-                    if image:
-                        images.append((image, "Preview"))
+                            if image:
+                                images.append((image, f"Background Variation {page_num}"))
                 
                 if images:
                     # Display all generated images
-                    for idx, (image, version) in enumerate(images, 1):
+                    for idx, (image, version) in enumerate(images):
                         st.markdown(
                             f"<div class='version-header'>{version}</div>", 
                             unsafe_allow_html=True
                         )
-                        st.markdown("<div class='generated-image'>", unsafe_allow_html=True)
-                        st.image(image)  # Changed from use_column_width
-                        st.markdown("</div>", unsafe_allow_html=True)
+                        st.image(image)
                         
-                        # Create two columns for the buttons
+                        # Create columns for buttons
                         btn_col1, btn_col2 = st.columns(2)
                         
-                        # Add download button in first column
+                        # Download button
                         with btn_col1:
                             buf = BytesIO()
                             image.save(buf, format="PNG")
                             st.download_button(
-                                label=f"📥 Download {version}",
+                                label=f"📥 Download",
                                 data=buf.getvalue(),
-                                file_name=f"event_{date.strftime('%Y%m%d')}_v{idx}.png",
+                                file_name=f"event_{date.strftime('%Y%m%d')}_{idx+1}.png",
                                 mime="image/png",
                                 use_container_width=True
                             )
                         
-                        # Add publish button in second column
+                        # Manual publish button (only for versions that aren't auto-published)
                         with btn_col2:
-                            if st.button(
-                                "🚀 Publish Event", 
-                                key=f"publish_btn_{idx}_{date}_{time}",  # More unique key
-                                use_container_width=True, 
-                                type="primary"
-                            ):
-                                # Show spinner while publishing
-                                with st.spinner("Publishing event..."):
-                                    # Prepare event details to send
-                                    event_details = {
-                                        "event_name": event_name,
-                                        "date": formatted_date,
-                                        "time": formatted_time,
-                                        "place": place,
-                                        "address": address
-                                    }
-                                    
-                                    # Add debugging in the UI
-                                    st.write("Sending to webhook...")
-                                    
-                                    # Send to webhook with additional logging
-                                    success, message = send_to_make_webhook(image, event_details)
-                                    
-                                    # Show result
+                            if version != "White Background" or not auto_publish:
+                                if st.button(
+                                    "🚀 Publish This Version", 
+                                    key=f"publish_btn_{idx}",
+                                    use_container_width=True
+                                ):
+                                    success, message = send_webhook(image, event_details)
                                     if success:
-                                        st.success(f"✅ {message}")
+                                        st.success(message)
                                     else:
-                                        st.error(f"❌ {message}")
+                                        st.error(message)
+                            else:
+                                # If this was auto-published, show a disabled button
+                                st.markdown('<div style="text-align: center; color: green; padding: 10px;">✅ Published</div>', unsafe_allow_html=True)
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                 else:
@@ -862,7 +833,7 @@ def main():
                     color: #666666;
                     margin: 20px 0;
                 ">
-                    <h3>Your event images will appear here</3>
+                    <h3>Your event images will appear here</h3>
                     <p>Fill in the details and click "Generate Images"</p>
                 </div>
                 """,
